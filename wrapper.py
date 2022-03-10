@@ -3,7 +3,12 @@ import requests
 
 from ratelimit import limits, sleep_and_retry
 
+# Timeout in seconds
 REQUESTS_TIMEOUT = 10
+# Seconds in a minute
+ONE_MINUTE = 60
+# Based on Loja Integrada's API rate limits
+MAX_CALLS_MINUTE = 100
 
 
 class APIKeyMissingError(Exception):
@@ -44,20 +49,32 @@ class LojaIntegrada:
         """ Given a url path, returns a complete url to make the API call """
         return f'https://api.awsli.com.br/v1/{url}/'
 
+    @sleep_and_retry
+    @limits(calls=MAX_CALLS_MINUTE, period=ONE_MINUTE)
     def _call_post(self, path: str, payload: dict):
         """ Calls a POST request given a path and a dict payload """
         headers = {
+            'Content-Type': 'application/json',
             'Authorization': f"chave_api {self.api_key} aplicacao {self.app_key}"
         }
 
         try:
             response = requests.post(self._url(path), json=payload, headers=headers)
+            # If HTTP error code is returned, raise an exception
             response.raise_for_status()
         except requests.exceptions.HTTPError as err:
+            try:
+                print(response.json())
+                raise SystemExit(err)
+            except AttributeError:
+                raise SystemExit(err)
+        except requests.exceptions.ConnectionError as err:
             raise SystemExit(err)
 
         return response
 
+    @sleep_and_retry
+    @limits(calls=MAX_CALLS_MINUTE, period=ONE_MINUTE)
     def _call_get(self, path: str):
         """ Calls a GET request given a path """
         data = {
@@ -68,8 +85,12 @@ class LojaIntegrada:
 
         try:
             response = requests.get(self._url(path), params=data)
+            # If HTTP error code is returned, raise an exception
             response.raise_for_status()
         except requests.exceptions.HTTPError as err:
+            raise SystemExit(err)
+
+        except requests.exceptions.ConnectionError as err:
             raise SystemExit(err)
 
         return response
